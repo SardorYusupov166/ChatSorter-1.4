@@ -231,9 +231,8 @@ public class ChatSorter implements ClientModInitializer {
         return matcher.find() ? matcher.group().replaceAll("[),.!?]+$", "") : "";
     }
     private static String componentJson(Text text) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        try { return mc.world == null ? text.getString() : Text.Serialization.toJsonString(text, mc.world.getRegistryManager()); }
-        catch (Exception e) { return text.getString(); }
+        String json = ChatHistoryStorage.serializeText(text);
+        return json.isBlank() ? text.getString() : json;
     }
     private static String legacyCodes(Style style) {
         StringBuilder b = new StringBuilder();

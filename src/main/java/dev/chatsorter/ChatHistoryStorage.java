@@ -1,12 +1,13 @@
 package dev.chatsorter;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.mojang.serialization.JsonOps;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.text.Text;
+import net.minecraft.text.TextCodecs;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,15 +30,10 @@ public final class ChatHistoryStorage {
         try {
             JsonArray array = JsonParser.parseString(Files.readString(file)).getAsJsonArray();
             int start = Math.max(0, array.size() - ChatExperienceSettings.clamp(limit));
-            MinecraftClient mc = MinecraftClient.getInstance();
-            RegistryWrapper.WrapperLookup registries = mc.world == null ? null : mc.world.getRegistryManager();
             for (int i = start; i < array.size(); i++) {
                 JsonObject o = array.get(i).getAsJsonObject();
                 String json = o.has("component") ? o.get("component").getAsString() : "";
-                Text message = null;
-                if (registries != null && !json.isBlank()) {
-                    try { message = Text.Serialization.fromJson(json, registries); } catch (Exception ignored) { }
-                }
+                Text message = deserializeText(json);
                 if (message == null) message = Text.literal(o.has("plain") ? o.get("plain").getAsString() : "");
                 ChatSorter.Tab tab;
                 try { tab = ChatSorter.Tab.valueOf(o.get("tab").getAsString()); }
@@ -62,8 +58,6 @@ public final class ChatHistoryStorage {
         try {
             Files.createDirectories(DIRECTORY);
             JsonArray array = new JsonArray();
-            MinecraftClient mc = MinecraftClient.getInstance();
-            RegistryWrapper.WrapperLookup registries = mc.world == null ? null : mc.world.getRegistryManager();
             int start = Math.max(0, entries.size() - ChatExperienceSettings.clamp(ChatExperienceSettings.restoreLimit));
             for (int i = start; i < entries.size(); i++) {
                 ChatHistoryEntry entry = entries.get(i);
@@ -73,10 +67,7 @@ public final class ChatHistoryStorage {
                 o.addProperty("sender", entry.sender);
                 o.addProperty("repeats", entry.repeats);
                 o.addProperty("plain", entry.message.getString());
-                if (entry.componentJson.isBlank() && registries != null) {
-                    try { entry.componentJson = Text.Serialization.toJsonString(entry.message, registries); }
-                    catch (Exception ignored) { }
-                }
+                if (entry.componentJson.isBlank()) entry.componentJson = serializeText(entry.message);
                 if (!entry.componentJson.isBlank()) o.addProperty("component", entry.componentJson);
                 array.add(o);
             }
@@ -92,6 +83,19 @@ public final class ChatHistoryStorage {
         if (serverKey == null) return;
         try { Files.deleteIfExists(file(serverKey)); }
         catch (Exception e) { System.err.println("[ChatSorter] Could not clear chat history: " + e.getMessage()); }
+    }
+
+    public static String serializeText(Text text) {
+        try { return TextCodecs.CODEC.encodeStart(JsonOps.INSTANCE, text).getOrThrow().toString(); }
+        catch (Exception ignored) { return ""; }
+    }
+
+    private static Text deserializeText(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            JsonElement element = JsonParser.parseString(json);
+            return TextCodecs.CODEC.parse(JsonOps.INSTANCE, element).getOrThrow();
+        } catch (Exception ignored) { return null; }
     }
 
     private static Path file(String key) {

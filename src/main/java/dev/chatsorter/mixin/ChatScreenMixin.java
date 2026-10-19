@@ -1,6 +1,7 @@
 package dev.chatsorter.mixin;
 
 import dev.chatsorter.ChatSorter;
+import dev.chatsorter.ChatHistoryEntry;
 import dev.chatsorter.ChatPosition;
 import dev.chatsorter.KeywordAlerts;
 import dev.chatsorter.ChatTheme;

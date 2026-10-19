@@ -1,7 +1,7 @@
 package dev.chatsorter;
 
-import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.text.MutableText;
 
 /** One routed message plus the metadata ChatSorter needs for history and copy actions. */
 public final class ChatHistoryEntry {

@@ -1,7 +1,6 @@
 package dev.chatsorter;
 
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.sound.SoundEvents;
 import java.nio.file.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -33,12 +32,8 @@ public final class KeywordAlerts {
         saveSettings();
     }
     public static void preview() {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || volume <= 0) return;
-        net.minecraft.util.Identifier id = net.minecraft.util.Identifier.tryParse(soundId);
-        if (id == null) return;
-        net.minecraft.sound.SoundEvent sound = net.minecraft.registry.Registries.SOUND_EVENT.get(id);
-        if (sound != null) mc.player.playSound(sound, volume, 1.0F);
+        if (volume <= 0) return;
+        IndependentNotificationAudio.play(soundId, volume);
     }
     private static void saveSettings() {
         try {

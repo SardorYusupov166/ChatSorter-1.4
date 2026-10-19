@@ -14,6 +14,8 @@ public final class AlertSettingsScreen extends Screen {
     private TextFieldWidget input;
     private TextFieldWidget soundSearch;
     private boolean soundPickerOpen;
+    private boolean draggingVolume;
+    private boolean draggingRestoreLimit;
     private int soundPickerScroll;
     private int soundCategory = 0;
     private int wordScroll, historyScroll, settingsScroll;
@@ -65,6 +67,22 @@ public final class AlertSettingsScreen extends Screen {
         c.fill(x-2,top,x,bottom,0xFF363C43);
         c.fill(x-2,y,x,y+h,0xFF7BA5E9);
     }
+    private void setVolumeAt(double mouseX) {
+        int sx=rightX()+12, sw=rightW()-24;
+        if(sw<=0) return;
+        float value=(float)((mouseX-sx)/sw);
+        KeywordAlerts.setVolume(Math.max(0.0F,Math.min(1.0F,value)));
+    }
+    private double restoreLimitFraction() {
+        int min=50, max=16_384;
+        return (ChatExperienceSettings.restoreLimit-min)/(double)(max-min);
+    }
+    private void setRestoreLimitAt(double mouseX) {
+        int sx=rightX()+12, sw=rightW()-24;
+        if(sw<=0) return;
+        double fraction=Math.max(0.0,Math.min(1.0,(mouseX-sx)/sw));
+        ChatExperienceSettings.restoreLimit=ChatExperienceSettings.clamp((int)Math.round(50+fraction*(16_384-50)));
+    }
     @Override public void render(DrawContext c, int mx, int my, float delta) {
         c.fill(0,0,width,height,0xEE14181D);
         c.fill(0,0,width,39,green());
@@ -105,10 +123,10 @@ public final class AlertSettingsScreen extends Screen {
         c.drawTextWithShadow(textRenderer,"Громкость: "+Math.round(KeywordAlerts.volume()*100)+"%",sx,oy,0xFFFFFFFF);
         c.fill(sx,oy+23,sx+sw,oy+37,0xFF30373B);
         c.fill(sx,oy+23,sx+Math.round(sw*KeywordAlerts.volume()),oy+37,ChatTheme.bright());
-        c.drawTextWithShadow(textRenderer,"Звук Minecraft",sx,oy+62,0xFFFFFFFF);
+        c.drawTextWithShadow(textRenderer,"Звук из Minecraft",sx,oy+62,0xFFFFFFFF);
         button(c,textRenderer.trimToWidth(KeywordAlerts.soundId() + "  ▼",Math.max(30,sw-18)),sx,oy+85,sw,23,mx,my);
         button(c,"▶ Прослушать",sx,oy+123,Math.min(sw,150),23,mx,my);
-        c.drawTextWithShadow(textRenderer,"Срабатывает во всех чатах",sx,oy+164,0xFFAAAAAA);
+        c.drawTextWithShadow(textRenderer,"Отдельная громкость, независимо от Minecraft",sx,oy+164,0xFFAAAAAA);
         c.drawTextWithShadow(textRenderer,"Свои сообщения игнорируются",sx,oy+180,0xFFAAAAAA);
         button(c,"Тема: " + ChatTheme.name(),sx,oy+205,Math.min(sw,190),23,mx,my);
         c.drawTextWithShadow(textRenderer,"Клавиша уведомлений: " + AlertHotkey.keyName(),sx,oy+245,0xFFFFFFFF);
@@ -116,9 +134,13 @@ public final class AlertSettingsScreen extends Screen {
         c.drawTextWithShadow(textRenderer,"Настройки чата",sx,oy+299,ChatTheme.text());
         button(c,"Объединять повторы: " + (ChatExperienceSettings.mergeRepeats ? "Вкл." : "Выкл."),sx,oy+317,sw,22,mx,my);
         button(c,"Восстанавливать историю: " + (ChatExperienceSettings.restoreHistory ? "Вкл." : "Выкл."),sx,oy+344,sw,22,mx,my);
-        button(c,"Лимит восстановления: " + ChatExperienceSettings.restoreLimit,sx,oy+371,sw,22,mx,my);
-        button(c,"Очистить историю этого сервера",sx,oy+398,sw,22,mx,my);
-        c.drawTextWithShadow(textRenderer,"Нажмите на лимит, чтобы выбрать значение.",sx,oy+425,0xFFAAAAAA);
+        c.drawTextWithShadow(textRenderer,"Лимит восстановления: " + ChatExperienceSettings.restoreLimit,sx,oy+371,0xFFFFFFFF);
+        c.fill(sx,oy+390,sx+sw,oy+400,0xFF30373B);
+        c.fill(sx,oy+390,sx+(int)Math.round(sw*restoreLimitFraction()),oy+400,ChatTheme.bright());
+        int limitKnobX=sx+(int)Math.round(sw*restoreLimitFraction());
+        c.fill(limitKnobX-2,oy+386,limitKnobX+3,oy+404,0xFFFFFFFF);
+        button(c,"Очистить историю этого сервера",sx,oy+410,sw,22,mx,my);
+        c.drawTextWithShadow(textRenderer,"Перетащите ползунок, чтобы изменить лимит.",sx,oy+437,0xFFAAAAAA);
         if(selected!=null) {
             c.drawTextWithShadow(textRenderer,"Выбранное уведомление",sx,oy+455,ChatTheme.text());
             c.drawTextWithShadow(textRenderer,textRenderer.trimToWidth("Время: "+selected.time(),sw),sx,oy+475,0xFFFFFFFF);
@@ -278,16 +300,19 @@ public final class AlertSettingsScreen extends Screen {
             if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<sx+sw && y>=oy+344 && y<oy+366) {
                 ChatExperienceSettings.restoreHistory=!ChatExperienceSettings.restoreHistory; ChatExperienceSettings.save(); return true;
             }
-            if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<sx+sw && y>=oy+371 && y<oy+393) {
-                int[] limits={50,500,1000,2000,5000,10000,16384};
-                int next=0; while(next<limits.length && limits[next]<=ChatExperienceSettings.restoreLimit) next++;
-                if(next==limits.length) next=0;
-                ChatExperienceSettings.restoreLimit=limits[next]; ChatExperienceSettings.save(); return true;
+            if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<=sx+sw && y>=oy+386 && y<oy+405) {
+                draggingRestoreLimit=true;
+                setRestoreLimitAt(x);
+                return true;
             }
-            if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<sx+sw && y>=oy+398 && y<oy+420) {
+            if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<sx+sw && y>=oy+410 && y<oy+432) {
                 ChatSorter.clearCurrentServerHistory(); return true;
             }
-            if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<=sx+sw && y>=oy+23 && y<oy+38) { KeywordAlerts.setVolume((float)((x-sx)/sw)); return true; }
+            if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<=sx+sw && y>=oy+23 && y<oy+38) {
+                draggingVolume=true;
+                setVolumeAt(x);
+                return true;
+            }
             if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<sx+sw && y>=oy+85 && y<oy+108) {
                 soundPickerOpen=true; soundPickerScroll=0; soundCategory=0; soundSearch.setText(""); soundSearch.setVisible(true);
                 return true;
@@ -295,6 +320,31 @@ public final class AlertSettingsScreen extends Screen {
             if(y>=settingsTop() && y<settingsBottom() && x>=sx && x<sx+Math.min(sw,150) && y>=oy+123 && y<oy+146) { KeywordAlerts.preview(); return true; }
         }
         return super.mouseClicked(click,doubled);
+    }
+    @Override public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        if(draggingRestoreLimit && click.button()==0) {
+            setRestoreLimitAt(click.x());
+            return true;
+        }
+        if(draggingVolume && click.button()==0) {
+            setVolumeAt(click.x());
+            return true;
+        }
+        return super.mouseDragged(click,offsetX,offsetY);
+    }
+    @Override public boolean mouseReleased(Click click) {
+        if(draggingRestoreLimit && click.button()==0) {
+            setRestoreLimitAt(click.x());
+            draggingRestoreLimit=false;
+            ChatExperienceSettings.save();
+            return true;
+        }
+        if(draggingVolume && click.button()==0) {
+            setVolumeAt(click.x());
+            draggingVolume=false;
+            return true;
+        }
+        return super.mouseReleased(click);
     }
     @Override public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         int step=(int)Math.signum(verticalAmount);
@@ -311,5 +361,10 @@ public final class AlertSettingsScreen extends Screen {
         settingsScroll=Math.max(0,Math.min(maxSettingsScroll(),settingsScroll-step*16));
         return true;
     }
-    @Override public void close() { client.setScreen(parent); }
+    @Override public void close() {
+        if(draggingRestoreLimit) ChatExperienceSettings.save();
+        draggingRestoreLimit=false;
+        draggingVolume=false;
+        client.setScreen(parent);
+    }
 }

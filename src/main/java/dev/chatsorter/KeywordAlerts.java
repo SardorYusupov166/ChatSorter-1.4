@@ -32,8 +32,11 @@ public final class KeywordAlerts {
         saveSettings();
     }
     public static void preview() {
-        if (volume <= 0) return;
-        IndependentNotificationAudio.play(soundId, volume);
+        if (volume <= 0) {
+            ChatSorterDiagnostics.soundPreviewSkipped("громкость уведомлений установлена на 0%", volume, soundId);
+            return;
+        }
+        IndependentNotificationAudio.play(soundId, volume, "предпрослушивание из настроек");
     }
     private static void saveSettings() {
         try {
@@ -102,7 +105,10 @@ public final class KeywordAlerts {
         return "OTHER_OR_UNKNOWN";
     }
     public static void notifyIfMatched(String message) {
-        if (words.isEmpty()) return;
+        if (words.isEmpty()) {
+            ChatSorterDiagnostics.alertNoMatch(message, List.of());
+            return;
+        }
         MinecraftClient mc = MinecraftClient.getInstance();
         String reason = ownReason(message, mc);
         String normalized = normalize(message);
@@ -113,12 +119,15 @@ public final class KeywordAlerts {
         for (String word : words) {
             if (lower.contains(word.toLowerCase(Locale.ROOT))) {
                 boolean suppressed = reason.startsWith("SUPPRESSED_");
-                String status = suppressed ? reason : (volume <= 0 || mc.player == null ? "MATCHED_SILENT" : "PLAYED");
+                String status = suppressed ? reason : (volume <= 0 || mc.player == null ? "MATCHED_SILENT" : "PLAYBACK_QUEUED");
                 ChatSorterDiagnostics.alert(word, message, status, volume, soundId);
                 ChatSorterDiagnostics.alertDecision(word, message, reason, status);
-                if (!suppressed && "PLAYED".equals(status)) preview();
+                if (!suppressed && "PLAYBACK_QUEUED".equals(status)) {
+                    IndependentNotificationAudio.play(soundId, volume, "ключевое слово: " + word);
+                }
                 return;
             }
         }
+        ChatSorterDiagnostics.alertNoMatch(message, List.copyOf(words));
     }
 }

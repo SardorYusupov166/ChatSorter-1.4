@@ -59,7 +59,7 @@ public abstract class ChatScreenMixin extends Screen {
         int h = 17;
         for (int i = 0; i < tabs.length; i++) {
             int left = x + i * width;
-            boolean active = ChatSorter.selected == tabs[i];
+            boolean active = ChatSorter.filterEnabled(tabs[i]);
             boolean hovered = mouseX >= left && mouseX < left + width - 2 && mouseY >= y && mouseY < y + h;
             int bg = active ? dev.chatsorter.ChatTheme.accent() : hovered ? 0xDB393E42 : 0xCB25282D;
             context.fill(left, y, left + width - 2, y + h, bg);
@@ -138,7 +138,7 @@ public abstract class ChatScreenMixin extends Screen {
             if (mouseX >= left && mouseX < left + width - 2) {
                 ChatSorter.setSearchQuery("");
                 if (chatsorter$search != null) chatsorter$search.setText("");
-                ChatSorter.switchTo(ChatSorter.Tab.values()[i]);
+                ChatSorter.toggleFilter(ChatSorter.Tab.values()[i]);
                 cir.setReturnValue(true);
                 return;
             }

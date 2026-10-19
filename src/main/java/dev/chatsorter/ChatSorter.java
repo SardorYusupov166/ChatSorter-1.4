@@ -31,7 +31,7 @@ public class ChatSorter implements ClientModInitializer {
     public enum Tab { NEARBY("Общий чат"), DM("ЛС"), SPY("Spy"), CONSOLE("Консоль"), ALL("Все");
         public final String title; Tab(String title) { this.title = title; }
     }
-    public static Tab selected = Tab.ALL;
+    private static final boolean[] enabledFilters = {true, true, true, true};
     private static boolean replaying = false;
     private static String searchQuery = "";
     private static String activeServerKey;
@@ -60,6 +60,19 @@ public class ChatSorter implements ClientModInitializer {
         refreshChat();
     }
     public static boolean isSearching() { return !searchQuery.isEmpty(); }
+    public static boolean filterEnabled(Tab tab) {
+        if (tab == Tab.ALL) return allFiltersEnabled();
+        return enabledFilters[tab.ordinal()];
+    }
+    private static boolean allFiltersEnabled() {
+        for (boolean enabled : enabledFilters) if (!enabled) return false;
+        return true;
+    }
+    private static String enabledFilterNames() {
+        List<String> names = new ArrayList<>();
+        for (Tab tab : Tab.values()) if (tab != Tab.ALL && filterEnabled(tab)) names.add(tab.name());
+        return names.isEmpty() ? "NONE" : String.join(",", names);
+    }
     public static List<ChatHistoryEntry> entries(Tab tab) { return List.copyOf(history[tab.ordinal()]); }
     public static String currentServerKey() { return activeServerKey; }
 
@@ -71,9 +84,11 @@ public class ChatSorter implements ClientModInitializer {
         HUD_ENTRIES.clear();
         try {
             hud.clear(false);
-            List<ChatHistoryEntry> source = isSearching() ? history[Tab.ALL.ordinal()] : history[selected.ordinal()];
+            List<ChatHistoryEntry> source = history[Tab.ALL.ordinal()];
             for (ChatHistoryEntry entry : source) {
-                if (!isSearching() || entry.message.getString().toLowerCase(Locale.ROOT).contains(searchQuery)) {
+                boolean matchesSearch = !isSearching() || entry.message.getString().toLowerCase(Locale.ROOT).contains(searchQuery);
+                boolean matchesFilters = isSearching() || filterEnabled(entry.tab);
+                if (matchesSearch && matchesFilters) {
                     Text display = entry.displayText();
                     HUD_ENTRIES.put(display, entry);
                     hud.addMessage(display);
@@ -116,7 +131,7 @@ public class ChatSorter implements ClientModInitializer {
                     .append(Text.literal("mlpgod").styled(style -> style.withColor(0xFFFFFF))));
                 client.inGameHud.getChatHud().addMessage(Text.literal("Сервер: ").styled(style -> style.withColor(0xFFCC55))
                     .append(Text.literal("MigosMC").styled(style -> style.withColor(0xFFFFFF))));
-                client.inGameHud.getChatHud().addMessage(Text.literal("ChatSorter 1.4.3 | mlpgod - MigosMC").styled(style -> style.withColor(0xAAAAAA)));
+                client.inGameHud.getChatHud().addMessage(Text.literal("ChatSorter 1.4.5 | mlpgod - MigosMC").styled(style -> style.withColor(0xAAAAAA)));
             });
         });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
@@ -143,16 +158,19 @@ public class ChatSorter implements ClientModInitializer {
         if (replaying) return true;
         String raw = message.getString();
         boolean internal = raw.startsWith("[ChatSorter]") || raw.startsWith("Автор: ")
-            || raw.startsWith("Сервер: ") || raw.startsWith("ChatSorter 1.4.3 |");
+            || raw.startsWith("Сервер: ") || raw.startsWith("ChatSorter 1.4.5 |");
         if (internal) {
             ChatHistoryEntry greeting = new ChatHistoryEntry(message, LocalDateTime.now().format(MESSAGE_TIME),
                 Tab.NEARBY, "ChatSorter", "internal greeting", 1, false);
             HUD_ENTRIES.put(message, greeting);
-            return selected == Tab.NEARBY || selected == Tab.ALL;
+            return filterEnabled(Tab.NEARBY);
         }
         Tab tab = classify(raw);
         String sender = findSender(raw, tab);
-        ChatSorterDiagnostics.record(message, tab.name(), selected.name(), tab == selected || selected == Tab.ALL);
+        boolean visible = isSearching()
+            ? raw.toLowerCase(Locale.ROOT).contains(searchQuery)
+            : filterEnabled(tab);
+        ChatSorterDiagnostics.record(message, tab.name(), enabledFilterNames(), visible);
 
         ChatHistoryEntry previous = lastReceivedEntry;
         if (ChatExperienceSettings.mergeRepeats && previous != null && !previous.restored
@@ -160,7 +178,7 @@ public class ChatSorter implements ClientModInitializer {
                 && normalize(previous.message.getString()).equals(normalize(raw))) {
             previous.repeats++;
             KeywordAlerts.notifyIfMatched(raw);
-            if (tab == selected || selected == Tab.ALL || isSearching()) refreshChat();
+            if (filterEnabled(tab) || isSearching()) refreshChat();
             saveHistory(false);
             return false;
         }
@@ -174,10 +192,10 @@ public class ChatSorter implements ClientModInitializer {
         addToMemory(entry);
         lastReceivedEntry = entry;
         HUD_ENTRIES.put(message, entry);
-        if (selected != tab && selected != Tab.ALL) { unread[tab.ordinal()]++; unread[Tab.ALL.ordinal()]++; }
+        if (!filterEnabled(tab)) { unread[tab.ordinal()]++; unread[Tab.ALL.ordinal()]++; }
         saveHistory(false);
         if (isSearching()) return raw.toLowerCase(Locale.ROOT).contains(searchQuery);
-        return tab == selected || selected == Tab.ALL;
+        return filterEnabled(tab);
     }
 
     private static void addToMemory(ChatHistoryEntry entry) {
@@ -193,7 +211,7 @@ public class ChatSorter implements ClientModInitializer {
         for (List<ChatHistoryEntry> messages : history) messages.clear();
         HUD_ENTRIES.clear();
         Arrays.fill(unread, 0);
-        selected = Tab.ALL;
+        Arrays.fill(enabledFilters, true);
         searchQuery = "";
         lastReceivedEntry = null;
     }
@@ -207,7 +225,7 @@ public class ChatSorter implements ClientModInitializer {
     /** Clear the search and show the message in the complete chat timeline. */
     public static void showInConversation(ChatHistoryEntry entry) {
         if (entry == null || !history[entry.tab.ordinal()].contains(entry)) return;
-        selected = Tab.ALL;
+        Arrays.fill(enabledFilters, true);
         searchQuery = "";
         Arrays.fill(unread, 0);
         refreshChat();
@@ -218,7 +236,7 @@ public class ChatSorter implements ClientModInitializer {
     }
     public static String copyText(ChatHistoryEntry entry) { return "[" + entry.time + "] " + entry.message.getString(); }
     public static String copySender(ChatHistoryEntry entry) { return entry.sender; }
-    public static String copyTechnical(ChatHistoryEntry entry) { return "ChatSorter 1.4.3\nВремя: " + entry.time + "\nКатегория: " + entry.tab.name()
+    public static String copyTechnical(ChatHistoryEntry entry) { return "ChatSorter 1.4.5\nВремя: " + entry.time + "\nКатегория: " + entry.tab.name()
         + "\nОтправитель: " + (entry.sender.isBlank() ? "не определён" : entry.sender)
         + "\nПовторы: " + entry.repeats + "\n" + entry.technical
         + "\nMinecraft Text JSON: " + componentJson(entry.message); }
@@ -291,11 +309,16 @@ public class ChatSorter implements ClientModInitializer {
         if (lower.startsWith("<") || lower.startsWith("[чат]") || lower.startsWith("[chat]")) return Tab.NEARBY;
         return Tab.CONSOLE;
     }
-    public static void switchTo(Tab tab) {
-        if (selected == tab && !isSearching()) return;
-        selected = tab;
-        unread[tab.ordinal()] = 0;
-        if (tab == Tab.ALL) Arrays.fill(unread, 0);
+    public static void toggleFilter(Tab tab) {
+        if (tab == Tab.ALL) {
+            boolean enableAll = !allFiltersEnabled();
+            Arrays.fill(enabledFilters, enableAll);
+            if (enableAll) Arrays.fill(unread, 0);
+        } else {
+            enabledFilters[tab.ordinal()] = !enabledFilters[tab.ordinal()];
+            if (enabledFilters[tab.ordinal()]) unread[tab.ordinal()] = 0;
+            if (allFiltersEnabled()) Arrays.fill(unread, 0);
+        }
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null) return;
         refreshChat();

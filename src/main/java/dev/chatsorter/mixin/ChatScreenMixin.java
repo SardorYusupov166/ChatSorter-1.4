@@ -27,6 +27,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class ChatScreenMixin extends Screen {
     private TextFieldWidget chatsorter$search;
     private ChatHistoryEntry chatsorter$copyMenuEntry;
+    private boolean chatsorter$copyMenuHasJump;
     private int chatsorter$copyMenuX, chatsorter$copyMenuY;
     private static final int COPY_MENU_WIDTH = 190, COPY_MENU_ROW = 18;
     @Inject(method = "init", at = @At("TAIL"))
@@ -100,14 +101,16 @@ public abstract class ChatScreenMixin extends Screen {
         double mouseY = click.y();
         if (chatsorter$copyMenuEntry != null && click.button() == 0) {
             int row = (int)((mouseY - chatsorter$copyMenuY) / COPY_MENU_ROW);
+            int menuRows = chatsorter$copyMenuRows();
             if (mouseX >= chatsorter$copyMenuX && mouseX < chatsorter$copyMenuX + COPY_MENU_WIDTH
-                    && mouseY >= chatsorter$copyMenuY && mouseY < chatsorter$copyMenuY + COPY_MENU_ROW * 6
-                    && row >= 0 && row < 6) {
+                    && mouseY >= chatsorter$copyMenuY && mouseY < chatsorter$copyMenuY + COPY_MENU_ROW * menuRows
+                    && row >= 0 && row < menuRows) {
                 chatsorter$copyOption(row);
                 cir.setReturnValue(true);
                 return;
             }
             chatsorter$copyMenuEntry = null;
+            chatsorter$copyMenuHasJump = false;
         }
         for (net.minecraft.client.gui.Element child : children()) {
             if (child.isMouseOver(mouseX, mouseY) && super.mouseClicked(click, doubled)) {
@@ -202,19 +205,25 @@ public abstract class ChatScreenMixin extends Screen {
         ChatHistoryEntry entry = ChatSorter.entryForHudMessage(messages.get(sourceIndex).content());
         if (entry == null) return false;
         chatsorter$copyMenuEntry = entry;
+        chatsorter$copyMenuHasJump = ChatSorter.isSearching();
         chatsorter$copyMenuX = Math.max(4, Math.min(this.width - COPY_MENU_WIDTH - 4, (int)mouseX));
-        chatsorter$copyMenuY = Math.max(4, Math.min(this.height - COPY_MENU_ROW * 6 - 4, (int)mouseY));
+        chatsorter$copyMenuY = Math.max(4, Math.min(this.height - COPY_MENU_ROW * chatsorter$copyMenuRows() - 4, (int)mouseY));
         return true;
     }
+    private int chatsorter$copyMenuRows() { return chatsorter$copyMenuHasJump ? 7 : 6; }
     private void chatsorter$renderCopyMenu(DrawContext context, int mouseX, int mouseY) {
         ChatHistoryEntry entry = chatsorter$copyMenuEntry;
         if (entry == null) return;
-        String[] labels = {"Копировать текст", "Текст + исходное время", "Копировать с форматированием",
+        String[] copyLabels = {"Копировать текст", "Текст + исходное время", "Копировать с форматированием",
             entry.sender.isBlank() ? "Ник отправителя не распознан" : "Копировать ник отправителя",
             ChatSorter.copyLink(entry).isBlank() ? "Ссылка отсутствует" : "Копировать ссылку", "Техническая информация"};
+        String[] labels = chatsorter$copyMenuHasJump
+            ? java.util.Arrays.copyOf(copyLabels, 7) : copyLabels;
+        if (chatsorter$copyMenuHasJump) labels[6] = "Показать в переписке";
         int x = chatsorter$copyMenuX, y = chatsorter$copyMenuY;
-        context.fill(x - 1, y - 1, x + COPY_MENU_WIDTH + 1, y + COPY_MENU_ROW * 6 + 1, 0xFF080A0D);
-        context.fill(x, y, x + COPY_MENU_WIDTH, y + COPY_MENU_ROW * 6, 0xF222272D);
+        int menuRows = chatsorter$copyMenuRows();
+        context.fill(x - 1, y - 1, x + COPY_MENU_WIDTH + 1, y + COPY_MENU_ROW * menuRows + 1, 0xFF080A0D);
+        context.fill(x, y, x + COPY_MENU_WIDTH, y + COPY_MENU_ROW * menuRows, 0xF222272D);
         for (int i = 0; i < labels.length; i++) {
             int rowY = y + i * COPY_MENU_ROW;
             boolean disabled = (i == 3 && entry.sender.isBlank()) || (i == 4 && ChatSorter.copyLink(entry).isBlank());
@@ -227,7 +236,17 @@ public abstract class ChatScreenMixin extends Screen {
     private void chatsorter$copyOption(int option) {
         ChatHistoryEntry entry = chatsorter$copyMenuEntry;
         chatsorter$copyMenuEntry = null;
+        boolean jump = chatsorter$copyMenuHasJump && option == 6;
+        chatsorter$copyMenuHasJump = false;
         if (entry == null) return;
+        if (jump) {
+            if (chatsorter$search != null) chatsorter$search.setText("");
+            ChatSorter.showInConversation(entry);
+            chatsorter$scrollToEntry(entry);
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (mc.player != null) mc.player.sendMessage(Text.literal("[ChatSorter] Открыта переписка вокруг сообщения"), true);
+            return;
+        }
         String content = switch (option) {
             case 0 -> entry.message.getString() + (entry.repeats > 1 ? " ×" + entry.repeats : "");
             case 1 -> ChatSorter.copyText(entry);
@@ -241,6 +260,28 @@ public abstract class ChatScreenMixin extends Screen {
         MinecraftClient mc = MinecraftClient.getInstance();
         mc.keyboard.setClipboard(content);
         if (mc.player != null) mc.player.sendMessage(Text.literal("[ChatSorter] Скопировано: " + new String[]{"текст", "текст со временем", "форматированный текст", "ник", "ссылка", "технические данные"}[option]), true);
+    }
+    private void chatsorter$scrollToEntry(ChatHistoryEntry target) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        ChatHud hud = mc.inGameHud.getChatHud();
+        ChatHudAccess access = (ChatHudAccess) hud;
+        List<ChatHudLine> messages = access.chatsorter$getMessages();
+        int targetIndex = -1;
+        for (int i = 0; i < messages.size(); i++) {
+            if (ChatSorter.entryForHudMessage(messages.get(i).content()) == target) {
+                targetIndex = i;
+                break;
+            }
+        }
+        if (targetIndex < 0) return;
+        List<ChatHudLine.Visible> lines = access.chatsorter$getVisibleMessages();
+        int entryCount = 0;
+        for (int row = 0; row < lines.size(); row++) {
+            if (lines.get(row).endOfEntry() && ++entryCount == targetIndex + 1) {
+                hud.scroll(Math.max(0, row - hud.getVisibleLineCount() / 2));
+                return;
+            }
+        }
     }
     // ChatScreen does not declare mouseDragged in Minecraft 1.21.11.
     // Polling while the chat screen is open avoids a missing-target Mixin injection.

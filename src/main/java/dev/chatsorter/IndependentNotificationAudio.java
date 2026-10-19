@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.sound.OggAudioStream;
 import net.minecraft.client.sound.Sound;
 import net.minecraft.client.sound.WeightedSoundSet;
+import net.minecraft.registry.Registries;
 import net.minecraft.resource.ResourceManager;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.random.Random;
@@ -33,18 +34,28 @@ final class IndependentNotificationAudio {
         if (eventId == null) return;
 
         WeightedSoundSet soundSet = client.getSoundManager().get(eventId);
-        if (soundSet == null) return;
+        if (soundSet == null) {
+            playMinecraftFallback(client, eventId, volume);
+            return;
+        }
         Sound selected = soundSet.getSound(Random.create());
-        if (selected == null) return;
+        if (selected == null) {
+            playMinecraftFallback(client, eventId, volume);
+            return;
+        }
 
         Identifier location = selected.getLocation();
         Identifier resourceId = Identifier.of(location.getNamespace(), "sounds/" + location.getPath() + ".ogg");
         ResourceManager resources = client.getResourceManager();
         float gain = Math.max(0.0F, Math.min(1.0F, volume));
-        AUDIO.execute(() -> decodeAndPlay(resources, resourceId, gain));
+        AUDIO.execute(() -> {
+            if (!decodeAndPlay(resources, resourceId, gain)) {
+                playMinecraftFallback(client, eventId, gain);
+            }
+        });
     }
 
-    private static void decodeAndPlay(ResourceManager resources, Identifier resourceId, float volume) {
+    private static boolean decodeAndPlay(ResourceManager resources, Identifier resourceId, float volume) {
         try (InputStream input = resources.open(resourceId);
              OggAudioStream stream = new OggAudioStream(input)) {
             AudioFormat format = stream.getFormat();
@@ -58,14 +69,29 @@ final class IndependentNotificationAudio {
                 line.open(format);
                 line.start();
                 int offset = 0;
-                while (offset < pcm.length) offset += line.write(pcm, offset, pcm.length - offset);
+                while (offset < pcm.length) {
+                    int written = line.write(pcm, offset, pcm.length - offset);
+                    if (written <= 0) throw new IllegalStateException("Audio output stopped accepting samples");
+                    offset += written;
+                }
                 line.drain();
             } finally {
                 line.close();
             }
+            return pcm.length > 0;
         } catch (Exception e) {
             System.err.println("[ChatSorter] Cannot play independent notification sound " + resourceId + ": " + e);
+            return false;
         }
+    }
+
+    /** Keep alerts audible if Java Sound cannot access an output device on this system. */
+    private static void playMinecraftFallback(MinecraftClient client, Identifier eventId, float volume) {
+        client.execute(() -> {
+            if (client.player == null || volume <= 0) return;
+            var event = Registries.SOUND_EVENT.get(eventId);
+            if (event != null) client.player.playSound(event, volume, 1.0F);
+        });
     }
 
     private static void applyVolume(byte[] pcm, AudioFormat format, float volume) {

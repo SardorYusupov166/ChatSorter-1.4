@@ -116,7 +116,7 @@ public class ChatSorter implements ClientModInitializer {
                     .append(Text.literal("mlpgod").styled(style -> style.withColor(0xFFFFFF))));
                 client.inGameHud.getChatHud().addMessage(Text.literal("Сервер: ").styled(style -> style.withColor(0xFFCC55))
                     .append(Text.literal("MigosMC").styled(style -> style.withColor(0xFFFFFF))));
-                client.inGameHud.getChatHud().addMessage(Text.literal("ChatSorter 1.4.1 | mlpgod - MigosMC").styled(style -> style.withColor(0xAAAAAA)));
+                client.inGameHud.getChatHud().addMessage(Text.literal("ChatSorter 1.4.3 | mlpgod - MigosMC").styled(style -> style.withColor(0xAAAAAA)));
             });
         });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
@@ -143,7 +143,7 @@ public class ChatSorter implements ClientModInitializer {
         if (replaying) return true;
         String raw = message.getString();
         boolean internal = raw.startsWith("[ChatSorter]") || raw.startsWith("Автор: ")
-            || raw.startsWith("Сервер: ") || raw.startsWith("ChatSorter 1.4.1 |");
+            || raw.startsWith("Сервер: ") || raw.startsWith("ChatSorter 1.4.3 |");
         if (internal) {
             ChatHistoryEntry greeting = new ChatHistoryEntry(message, LocalDateTime.now().format(MESSAGE_TIME),
                 Tab.NEARBY, "ChatSorter", "internal greeting", 1, false);
@@ -204,13 +204,21 @@ public class ChatSorter implements ClientModInitializer {
     }
 
     public static ChatHistoryEntry entryForHudMessage(Text message) { return HUD_ENTRIES.get(message); }
+    /** Clear the search and show the message in the complete chat timeline. */
+    public static void showInConversation(ChatHistoryEntry entry) {
+        if (entry == null || !history[entry.tab.ordinal()].contains(entry)) return;
+        selected = Tab.ALL;
+        searchQuery = "";
+        Arrays.fill(unread, 0);
+        refreshChat();
+    }
     public static String copyText(Text text) {
         ChatHistoryEntry entry = HUD_ENTRIES.get(text);
         return entry == null ? text.getString() : copyText(entry);
     }
     public static String copyText(ChatHistoryEntry entry) { return "[" + entry.time + "] " + entry.message.getString(); }
     public static String copySender(ChatHistoryEntry entry) { return entry.sender; }
-    public static String copyTechnical(ChatHistoryEntry entry) { return "ChatSorter 1.4.1\nВремя: " + entry.time + "\nКатегория: " + entry.tab.name()
+    public static String copyTechnical(ChatHistoryEntry entry) { return "ChatSorter 1.4.3\nВремя: " + entry.time + "\nКатегория: " + entry.tab.name()
         + "\nОтправитель: " + (entry.sender.isBlank() ? "не определён" : entry.sender)
         + "\nПовторы: " + entry.repeats + "\n" + entry.technical
         + "\nMinecraft Text JSON: " + componentJson(entry.message); }
